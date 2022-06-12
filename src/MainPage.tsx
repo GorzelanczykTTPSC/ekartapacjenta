@@ -34,7 +34,7 @@ function MainPage() {
       return patients
     }
     else{
-      return patients.filter(e => {return e._lastName.includes(searchPhrase)})
+      return patients.filter(e => {return e._lastName.toLowerCase().includes(searchPhrase.toLowerCase())})
     }
   }
 
@@ -71,7 +71,7 @@ function MainPage() {
       <h1>Patients</h1>
       <InputGroup className="mb-3" style={{width: "50%", marginLeft: "25%"}}>
         <Form.Control
-          placeholder="Lastname"
+          placeholder="Last name"
           aria-label="Lastname"
           aria-describedby="basic-addon1"
           onChange={e=>setSearchPhrase(e.target.value)}

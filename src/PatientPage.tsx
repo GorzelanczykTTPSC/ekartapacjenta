@@ -1,11 +1,20 @@
 import React, { useState, useEffect } from 'react';
-
 import Client from 'fhir-kit-client'
 import { Patient, PatientParams } from './Patient'
-
+import DatePicker from "react-datepicker"
+import { Observation, ObservationParams } from './Observation';
 import { useParams } from 'react-router-dom'
-
+import dateFormat from 'dateformat'
 import { BASE_URL } from './constants'
+import { Card, Container, Row, Table, Button} from 'react-bootstrap';
+
+function subtractYears(numOfYears: number, date = new Date()) {
+  const dateCopy = new Date(date.getTime());
+
+  dateCopy.setFullYear(dateCopy.getFullYear() - numOfYears);
+
+  return dateCopy;
+}
 
 function PatientPage() {
 
@@ -14,23 +23,169 @@ function PatientPage() {
   const { id } = useParams()
 
   const client = new Client({baseUrl: BASE_URL })
+  const [startDate, setStartDate] = useState(subtractYears(10, new Date()))
+  const [endDate, setEndDate] = useState(new Date())
 
-  useEffect(() => {
-    console.log(process.env)
+  const [observations, setObservations] = useState<Array<Observation>>([])
+  const [groupedObservations, setGroupedObservations] = useState<Array<Array<Observation>>>([[]])
+
+  // @ts-ignore
+  const listAllResources = async (bundle) => {
+      
+      // @ts-ignore
+      const nextLink = bundle.link.filter((el: {relation: string, url: string}) =>{ return el.relation == "next" })
+      console.log('next link', nextLink)
+      if (nextLink.length > 0) {
+        // @ts-ignore
+        return [bundle].concat(await listAllResources(await client.nextPage(bundle)))
+      } else {
+        return [bundle]
+      }
+  }
+
+  const getDates = () => {
+      const dates = []
+      if (endDate){
+        dates.push("<=" + dateFormat(endDate, "yyyy-mm-dd"))
+      }
+      if (startDate){
+        dates.push(">=" + dateFormat(startDate, "yyyy-mm-dd"))
+      }
+      console.log(dates)
+      return dates
+  }
+
+  const loadData = async () => {
     client.search({
       resourceType: 'Patient',
       searchParams: {
         "_id": id || ""
       } 
     }).then(data => {
-      console.log(data)
+      console.log("Patient:",data)
       setPatient(new Patient(data.entry[0].resource))
+      return client.search({
+        resourceType: 'Observation',
+        searchParams: {
+          subject: id!,
+          "date": getDates()
+        }
+      });
+    }).then(async data => {
+      console.log("Observations:",data)
+      const more = await listAllResources(data)
+
+      const observations: Array<Observation> = more.reduce((arr: Array<Observation>, bundle: {entry: [{resource: ObservationParams}]}) => {
+        bundle.entry.forEach((obs: {resource: ObservationParams}) => {
+          console.log("entry resource gowno ", obs)
+          arr.push(new Observation(obs.resource))
+        })
+        return arr
+      }, [])
+      setObservations(observations.reverse())
     })
+
+  }
+
+  useEffect(() => {
+    console.log(observations)
+    // @ts-ignore
+    setGroupedObservations(observations.reduce((acc: Array<Array<Observation>>, curr: Observation) => {
+      // @ts-ignore
+      if (acc.at(-1)!.length==0) {
+        acc.at(-1)!.push(curr)
+        return acc
+      }
+      if (acc.at(-1)?.at(-1)?.date == curr.date) {
+        acc.at(-1)?.push(curr)
+        return acc
+      }
+      acc.push([])
+      return acc
+    }, [[]] ))
+  }, [observations])
+  
+
+  useEffect(() => {
+    console.log(endDate)
+  } )
+  
+  useEffect(() => {
+    loadData()
+
+    client.capabilityStatement().then(data => {
+      console.log("CS", data)
+    })
+    
   }, [])
-
-
+  
+  
   return (
-    <div> siema {id} {patient?.gender}</div>
+    <Container>
+      <h1 style={{textAlign: "center"}}>Observations</h1>
+      <Row>
+        <Card>
+          <Card.Body>
+            <h2>Patient: {patient?.fullname}</h2>
+            <h4>Gender: {patient?.gender}</h4>
+            <h4>Birth date: {patient?.birthDate}</h4>
+            <div>
+            {
+              patient?.identifiers.reverse().map(el => {
+                return (<h6>{el}</h6>)
+              })
+            }
+            <Button>See medication statements</Button>
+            </div>
+          </Card.Body>
+        </Card>
+      </Row>
+      <Row>
+        <Card>
+          <Card.Body>
+          <div style={{"float": "left"}}>
+            From date:
+            <DatePicker selected={startDate} onChange={(date:Date) => setStartDate(date)} />
+          </div>
+          <div style={{"float": "left"}}>
+            To date:
+            <DatePicker selected={endDate} onChange={(date:Date) => {setEndDate(date)}} />
+          </div>
+          <div style={{"float": "left", height: "100%", display: "flex"}}>
+            <Button style={{width: "100px"}} onClick={loadData}>Filter</Button>
+          </div>
+        </Card.Body>
+        </Card>
+      </Row>
+
+
+      <Row>
+      <Table striped bordered hover>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Observation</th>
+            <th>Value</th>
+            <th>Date</th>
+          </tr>
+        </thead>
+        <tbody>
+        {
+          observations.map((p, idx, arr) =>  (
+          <tr>
+            <td>{idx+1}</td>
+            <td>{p.parameter}</td>
+            <td>{p.value.map(e=> <div>{e}</div>)}</td>
+            <td>{new Date(p.date).toUTCString()}</td>
+          </tr>
+          )
+          )
+        }
+        </tbody>
+      </Table>
+        </Row>
+      
+    </Container>
   )
 
 }
