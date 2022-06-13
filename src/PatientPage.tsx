@@ -3,10 +3,14 @@ import Client from 'fhir-kit-client'
 import { Patient, PatientParams } from './Patient'
 import DatePicker from "react-datepicker"
 import { Observation, ObservationParams } from './Observation';
-import { useParams } from 'react-router-dom'
+import { useParams, Link } from 'react-router-dom'
 import dateFormat from 'dateformat'
 import { BASE_URL } from './constants'
-import { Card, Container, Row, Table, Button} from 'react-bootstrap';
+import { Card, Accordion, Container, Row, Table, Button, Tabs, Tab} from 'react-bootstrap';
+import { GroupedObservations } from './GroupedObservations';
+import { GroupedMedRequests } from './GroupedMedRequests';
+import { MedicationRequest } from './MedicationRequest';
+import { MedicationRequestParams } from './MedicationRequest'
 
 function subtractYears(numOfYears: number, date = new Date()) {
   const dateCopy = new Date(date.getTime());
@@ -14,6 +18,21 @@ function subtractYears(numOfYears: number, date = new Date()) {
   dateCopy.setFullYear(dateCopy.getFullYear() - numOfYears);
 
   return dateCopy;
+}
+
+function groupReducer<Type>(acc: Array<Array<Type>>, curr: Type): Array<Array<Type>> {
+  // @ts-ignore
+  if (acc.at(-1)!.length==0) {
+    acc.at(-1)!.push(curr)
+    return acc
+  }
+  // @ts-ignore
+  if (acc.at(-1)?.at(-1)?.date.split('T')[0] == curr.date.split('T')[0]) {
+    acc.at(-1)?.push(curr)
+    return acc
+  }
+  acc.push([curr])
+  return acc
 }
 
 function PatientPage() {
@@ -28,6 +47,9 @@ function PatientPage() {
 
   const [observations, setObservations] = useState<Array<Observation>>([])
   const [groupedObservations, setGroupedObservations] = useState<Array<Array<Observation>>>([[]])
+
+  const [medRequests, setMedRequests] = useState<Array<MedicationRequest>>([])
+  const [groupedMedRequests, setGroupedMedRequests] = useState<Array<Array<MedicationRequest>>>([[]]) 
 
   // @ts-ignore
   const listAllResources = async (bundle) => {
@@ -51,7 +73,7 @@ function PatientPage() {
       if (startDate){
         dates.push(">=" + dateFormat(startDate, "yyyy-mm-dd"))
       }
-      console.log(dates)
+      console.log("Dates:", dates)
       return dates
   }
 
@@ -62,7 +84,7 @@ function PatientPage() {
         "_id": id || ""
       } 
     }).then(data => {
-      console.log("Patient:",data)
+      //console.log("Patient:",data)
       setPatient(new Patient(data.entry[0].resource))
       return client.search({
         resourceType: 'Observation',
@@ -72,17 +94,31 @@ function PatientPage() {
         }
       });
     }).then(async data => {
-      console.log("Observations:",data)
-      const more = await listAllResources(data)
-
-      const observations: Array<Observation> = more.reduce((arr: Array<Observation>, bundle: {entry: [{resource: ObservationParams}]}) => {
-        bundle.entry.forEach((obs: {resource: ObservationParams}) => {
-          console.log("entry resource gowno ", obs)
+      //console.log("Observations:",data)
+      const observations: Array<Observation> = (await listAllResources(data)).reduce((arr: Array<Observation>, bundle: {entry: [{resource: ObservationParams}]}) => {
+        bundle.entry?.forEach((obs: {resource: ObservationParams}) => {
           arr.push(new Observation(obs.resource))
         })
         return arr
       }, [])
       setObservations(observations.reverse())
+      return client.search({
+        resourceType: 'MedicationRequest',
+        searchParams: {
+          subject: id!,
+          authoredon: getDates()
+        }
+      })
+    }).then(async reqs => {
+      const medReqs: Array<MedicationRequest> = (await listAllResources(reqs)).reduce((arr: Array<MedicationRequest>, bundle: {entry: [{resource: MedicationRequestParams}]}) => {
+        console.log("MEDREQS: ", bundle)
+        bundle.entry?.forEach((obs: {resource: MedicationRequestParams}) => {
+          arr.push(new MedicationRequest(obs.resource))
+        })
+        return arr
+      }, [])
+      console.log('reduced medreqs', medReqs)
+      setMedRequests(medReqs.reverse())
     })
 
   }
@@ -90,52 +126,38 @@ function PatientPage() {
   useEffect(() => {
     console.log(observations)
     // @ts-ignore
-    setGroupedObservations(observations.reduce((acc: Array<Array<Observation>>, curr: Observation) => {
-      // @ts-ignore
-      if (acc.at(-1)!.length==0) {
-        acc.at(-1)!.push(curr)
-        return acc
-      }
-      if (acc.at(-1)?.at(-1)?.date == curr.date) {
-        acc.at(-1)?.push(curr)
-        return acc
-      }
-      acc.push([])
-      return acc
-    }, [[]] ))
+    setGroupedObservations(observations.reduce(groupReducer, [[]] ))
   }, [observations])
-  
 
   useEffect(() => {
-    console.log(endDate)
-  } )
+    // @ts-ignore
+    const reduced = medRequests.reduce(groupReducer, [[]] )
+    console.log('reeduced', reduced)
+    // @ts-ignore
+    setGroupedMedRequests(reduced)
+  }, [medRequests])
   
+
   useEffect(() => {
     loadData()
-
-    client.capabilityStatement().then(data => {
-      console.log("CS", data)
-    })
-    
   }, [])
   
   
   return (
     <Container>
-      <h1 style={{textAlign: "center"}}>Observations</h1>
+      <h1 style={{textAlign: "center"}}>Details</h1>
       <Row>
         <Card>
           <Card.Body>
             <h2>Patient: {patient?.fullname}</h2>
-            <h4>Gender: {patient?.gender}</h4>
             <h4>Birth date: {patient?.birthDate}</h4>
+            <h4>Gender: {patient?.gender}</h4>
             <div>
             {
               patient?.identifiers.reverse().map(el => {
                 return (<h6>{el}</h6>)
               })
             }
-            <Button>See medication statements</Button>
             </div>
           </Card.Body>
         </Card>
@@ -157,33 +179,20 @@ function PatientPage() {
         </Card.Body>
         </Card>
       </Row>
-
-
-      <Row>
-      <Table striped bordered hover>
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Observation</th>
-            <th>Value</th>
-            <th>Date</th>
-          </tr>
-        </thead>
-        <tbody>
-        {
-          observations.map((p, idx, arr) =>  (
-          <tr>
-            <td>{idx+1}</td>
-            <td>{p.parameter}</td>
-            <td>{p.value.map(e=> <div>{e}</div>)}</td>
-            <td>{new Date(p.date).toUTCString()}</td>
-          </tr>
-          )
-          )
-        }
-        </tbody>
-      </Table>
-        </Row>
+      <Row style={{marginTop: "30px"}}>
+        <Tabs defaultActiveKey="observations">
+          <Tab eventKey="observations" title="Observations">
+            <Accordion defaultActiveKey="0" style={{marginTop: '15px'}}>
+              <GroupedObservations data={groupedObservations} />
+            </Accordion>
+          </Tab>
+          <Tab eventKey="requests" title="Medication requests">
+            <Accordion defaultActiveKey="0" style={{marginTop: '15px'}}>
+              <GroupedMedRequests data={groupedMedRequests} />
+            </Accordion>
+          </Tab>
+        </Tabs>
+      </Row>
       
     </Container>
   )
