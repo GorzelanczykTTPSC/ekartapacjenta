@@ -6,11 +6,13 @@ import { Observation, ObservationParams } from './Observation';
 import { useParams, Link } from 'react-router-dom'
 import dateFormat from 'dateformat'
 import { BASE_URL } from './constants'
-import { Card, Accordion, Container, Row, Table, Button, Tabs, Tab} from 'react-bootstrap';
+import { Card, Accordion, Stack, Container, Row, Table, Button, Tabs, Tab} from 'react-bootstrap';
 import { GroupedObservations } from './GroupedObservations';
 import { GroupedMedRequests } from './GroupedMedRequests';
 import { MedicationRequest } from './MedicationRequest';
 import { MedicationRequestParams } from './MedicationRequest'
+import { GraphWidget } from './GraphWidget';
+
 
 function subtractYears(numOfYears: number, date = new Date()) {
   const dateCopy = new Date(date.getTime());
@@ -49,11 +51,11 @@ function PatientPage() {
   const [groupedObservations, setGroupedObservations] = useState<Array<Array<Observation>>>([[]])
 
   const [medRequests, setMedRequests] = useState<Array<MedicationRequest>>([])
-  const [groupedMedRequests, setGroupedMedRequests] = useState<Array<Array<MedicationRequest>>>([[]]) 
+  const [groupedMedRequests, setGroupedMedRequests] = useState<Array<Array<MedicationRequest>>>([[]])
 
   // @ts-ignore
   const listAllResources = async (bundle) => {
-      
+
       // @ts-ignore
       const nextLink = bundle.link.filter((el: {relation: string, url: string}) =>{ return el.relation == "next" })
       console.log('next link', nextLink)
@@ -82,7 +84,7 @@ function PatientPage() {
       resourceType: 'Patient',
       searchParams: {
         "_id": id || ""
-      } 
+      }
     }).then(data => {
       //console.log("Patient:",data)
       setPatient(new Patient(data.entry[0].resource))
@@ -136,13 +138,13 @@ function PatientPage() {
     // @ts-ignore
     setGroupedMedRequests(reduced)
   }, [medRequests])
-  
+
 
   useEffect(() => {
     loadData()
   }, [])
-  
-  
+
+
   return (
     <Container>
       <h1 style={{textAlign: "center"}}>Details</h1>
@@ -182,9 +184,12 @@ function PatientPage() {
       <Row style={{marginTop: "30px"}}>
         <Tabs defaultActiveKey="observations">
           <Tab eventKey="observations" title="Observations">
-            <Accordion defaultActiveKey="0" style={{marginTop: '15px'}}>
-              <GroupedObservations data={groupedObservations} />
-            </Accordion>
+            <Stack gap={3} style={{marginTop: '15px'}}>
+              <GraphWidget observations={groupedObservations}/>
+              <Accordion defaultActiveKey="0">
+                <GroupedObservations data={groupedObservations} />
+              </Accordion>
+            </Stack>
           </Tab>
           <Tab eventKey="requests" title="Medication requests">
             <Accordion defaultActiveKey="0" style={{marginTop: '15px'}}>
@@ -193,7 +198,7 @@ function PatientPage() {
           </Tab>
         </Tabs>
       </Row>
-      
+
     </Container>
   )
 
